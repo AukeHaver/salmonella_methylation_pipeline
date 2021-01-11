@@ -1,0 +1,73 @@
+---
+title: "Bash Script Generator"
+author: "Auke Haver"
+date: "January 11, 2021"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setup Environment
+```{r packages setup}
+#install.packages("tidyverse")
+library(tidyverse)
+source("salmonella_methylation_pipeline_bash_scripts.R")
+```
+
+# Read design and setup files, and working directory
+```{r}
+# design
+design <- "../info/serovar_design.tsv" %>% 
+  read_tsv(col_types = "cccc")
+# setup
+setup <- "../info/setup_design.tsv" %>%
+  read_tsv(col_types = "llllc")
+# working directory
+working_directory <- readLines("../info/working_directory.txt")[1] 
+# subreads
+pacbio_reads <- readLines("../info/pacbio_data.txt")
+```
+
+# Modify design file with setup info and save
+```{r}
+analysis_design <- make_analysis_file(design,setup)
+analysis_design %>% write_tsv("../info/analysis_design.tsv") 
+```
+
+# Create bash script for Unicycler assembly
+```{r}
+# Call function for generating hybrid assembly commands
+generate_unicycler_commands(design,working_directory)
+```
+
+# Create bash script for Seq-Seq-Pan assembly
+```{r}
+# Call function for generating pangenome assembly commands
+generate_seq_seq_pan_commands(design,working_directory)
+```
+
+# Create bash script for Prokka annnotation
+```{r}
+# Call function for generating assembly annotation commands
+generate_prokka_commands(analysis_design,working_directory)
+```
+
+# Create bash script for read alignment and basemodification a-d
+```{r}
+# Call function for generating demultiplexing commands
+generate_smrtlink_commands_part_1(pacbio_reads,working_directory)
+
+# Call function for generating demultiplexing commands
+generate_smrtlink_commands_part_2(analysis_design,working_directory)
+
+# Call function for generating demultiplexing commands
+generate_smrtlink_commands_part_3(analysis_design,working_directory)
+
+# Call function for generating demultiplexing commands
+generate_smrtlink_commands_part_4(analysis_design,working_directory)
+```
+
+
+
+
