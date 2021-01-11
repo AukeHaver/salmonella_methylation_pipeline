@@ -1,0 +1,5 @@
+# packages in environment at /home/haverau/.conda/envs/artemis_env:
+#
+# Name                    Version                   Build  Channel
+artemis                   18.1.0                        0    bioconda
+openjdk                   10.0.2            h14c3975_1015    conda-forge

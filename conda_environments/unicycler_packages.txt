@@ -1,0 +1,83 @@
+# packages in environment at /home/haverau/.conda/envs/unicycler_env:
+#
+# Name                    Version                   Build  Channel
+_libgcc_mutex             0.1                        main  
+alsa-lib                  1.2.3                h516909a_0    conda-forge
+bcftools                  1.9                  ha228f0b_4    bioconda
+blast                     2.5.0                hc0b0e79_3    bioconda
+boost                     1.73.0                  py37_11  
+bowtie2                   2.3.5.1          py37he513fc3_0    bioconda
+bzip2                     1.0.8                h7b6447c_0  
+ca-certificates           2020.10.14                    0  
+cairo                     1.16.0            h18b612c_1001    conda-forge
+certifi                   2020.6.20        py37he5f6b98_2    conda-forge
+curl                      7.69.1               hbc83047_0  
+fontconfig                2.13.1            he4413a7_1000    conda-forge
+freebayes                 0.9.21.7                      0    bioconda
+freetype                  2.10.4               he06d7ca_0    conda-forge
+giflib                    5.2.1                h516909a_2    conda-forge
+glib                      2.63.1               h5a9c865_0  
+graphite2                 1.3.14               h23475e2_0  
+harfbuzz                  2.4.0                hca77d97_0  
+htslib                    1.9                  ha228f0b_7    bioconda
+icu                       58.2                 he6710b0_3  
+jpeg                      9d                   h516909a_0    conda-forge
+krb5                      1.17.1               h173b8e3_0  
+lcms2                     2.11                 hbd6801e_0    conda-forge
+ld_impl_linux-64          2.33.1               h53a641e_7  
+libboost                  1.73.0              h37e3b65_11  
+libcurl                   7.69.1               h20c2e04_0  
+libdeflate                1.0                  h14c3975_1    bioconda
+libedit                   3.1.20181209         hc058e9b_0  
+libffi                    3.2.1             hf484d3e_1007  
+libgcc                    7.2.0                h69d50b8_2  
+libgcc-ng                 9.1.0                hdf63c60_0  
+libpng                    1.6.37               hed695b0_2    conda-forge
+libssh2                   1.9.0                h1ba5d50_1  
+libstdcxx-ng              9.1.0                hdf63c60_0  
+libtiff                   4.1.0                hc7e4089_6    conda-forge
+libuuid                   2.32.1            h14c3975_1000    conda-forge
+libwebp-base              1.1.0                h516909a_3    conda-forge
+libxcb                    1.14                 h7b6447c_0  
+libxml2                   2.9.10               hb55368b_3  
+lz4-c                     1.9.2                heb0550a_3  
+miniasm                   0.3_r179             hed695b0_1    bioconda
+ncurses                   6.1                  he6710b0_1  
+openjdk                   11.0.8               hacce0ff_0    conda-forge
+openssl                   1.1.1h               h516909a_0    conda-forge
+pcre                      8.44                 he1b5a44_0    conda-forge
+perl                      5.26.2               h14c3975_0  
+pilon                     1.23                          2    bioconda
+pip                       20.2.4                   py37_0  
+pixman                    0.38.0            h516909a_1003    conda-forge
+py-boost                  1.73.0          py37h962f231_11  
+python                    3.7.6                h0371630_2  
+python_abi                3.7                     1_cp37m    conda-forge
+racon                     1.4.13               he513fc3_0    bioconda
+readline                  7.0                  h7b6447c_5  
+samtools                  1.9                 h10a08f8_12    bioconda
+setuptools                50.3.0           py37hb0f4dca_1  
+spades                    3.13.0                        0    bioconda
+sqlite                    3.31.1               h7b6447c_0  
+tbb                       2020.3               hfd86e86_0  
+tk                        8.6.10               hbc83047_0  
+unicycler                 0.4.8            py37h8b12597_0    bioconda
+wheel                     0.35.1                     py_0  
+xorg-fixesproto           5.0               h14c3975_1002    conda-forge
+xorg-inputproto           2.3.2             h14c3975_1002    conda-forge
+xorg-kbproto              1.0.7             h14c3975_1002    conda-forge
+xorg-libice               1.0.10               h516909a_0    conda-forge
+xorg-libsm                1.2.3             h84519dc_1000    conda-forge
+xorg-libx11               1.6.12               h516909a_0    conda-forge
+xorg-libxext              1.3.4                h516909a_0    conda-forge
+xorg-libxfixes            5.0.3             h516909a_1004    conda-forge
+xorg-libxi                1.7.10               h516909a_0    conda-forge
+xorg-libxrender           0.9.10            h516909a_1002    conda-forge
+xorg-libxtst              1.2.3             h516909a_1002    conda-forge
+xorg-recordproto          1.14.2            h516909a_1002    conda-forge
+xorg-renderproto          0.11.1            h14c3975_1002    conda-forge
+xorg-xextproto            7.3.0             h14c3975_1002    conda-forge
+xorg-xproto               7.0.31            h14c3975_1007    conda-forge
+xz                        5.2.5                h7b6447c_0  
+zlib                      1.2.11               h7b6447c_3  
+zstd                      1.4.5                h9ceee32_0  

@@ -1,0 +1,6 @@
+# packages in environment at /home/haverau/.conda/envs/smrtlink:
+#
+# Name                    Version                   Build  Channel
+igv                       2.4.9                         0    bioconda
+openjdk                   8.0.152              h7b6447c_3  
+smrtlink-tools            7.0.1.66975                   0    HCC
