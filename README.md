@@ -1,2 +1,2 @@
 # salmonella_methylation_pipeline
-S&lt;P: A Salmonella Methylation analysis Pipelins
+SMP: A Salmonella enterica subsp. enterica Methylation Analysis Pipeline
