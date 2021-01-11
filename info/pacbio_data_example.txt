@@ -1,0 +1,2 @@
+name.year.date.subreads.bam
+barcodes.fasta
