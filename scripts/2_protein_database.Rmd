@@ -1,0 +1,147 @@
+---
+title: "Salmonella enterica Prokka Database"
+author: "Auke Haver"
+date: "Januari 12, 2020"
+output: html_document
+---
+# Introduction
+The goal of this script is to combine gene data from multiple sources to produce one fasta-formatted protein database for annotation of *Salmonella enterica* genomes by *Prokka* (Seeman T. 2014). In this script, we will use a selection of genes from the Virulence Factor Database (VFDB) (Liu, B et al., 2019) and Uniprot as a custom virulence factor database, EnteroBase (Achtmann, M. et al., 2020) and the REBASE Gold Standard (Roberts, R. et al., 2015). Specific to our research, is the need to identify virulence genes and genes coding for methyltransferases. This will influence some choices taken further on.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#install.packages(tidyverse)
+library(tidyverse)
+#install.packages(ggplot)
+library(ggplot2)
+#install.pakcages(readxl)
+library(readxl)
+#install.packages(kableExtra)
+library(kableExtra)
+source("salmonella_methylation_pipeline_pdb_scripts.R")
+```
+# Step 1: Loading and comparing files
+### Loading data
+For each of the databases, the (meta)data is downloaded and read into workable dataframes (df).
+```{r,warning=FALSE}
+# cgMLST (3002 sequences on 17-11-2020 10:20)
+cgMLST_df <- read_tsv("../protein_database/download/cgMLST.csv",quoted_na=NA, trim_ws = TRUE,col_types = "cccicccc") %>%
+  group_by(Locus)%>%
+  mutate(Locus = Gene, 
+         Gene=Start, 
+         Start=Length, 
+         Length=Product, 
+         metadata=`Allele Count`, 
+         `Allele Count`= Alleles, 
+         Alleles = X8,
+         Source="cgMLST") %>% 
+  select(-X8)
+cgMLST_df <- 
+  ReadFasta("../protein_database/download/Senterica_cgMLST_RefAA.fasta") %>% 
+  mutate(Locus = name) %>% right_join(cgMLST_df,by="Locus") %>% 
+  select(-c(`Allele Count`,Alleles,name)) %>%
+  mutate(sequence = str_remove(as.character(sequence),"\\*"))
+
+# REBASE Gold Standard (3300 sequences on 17-11-2020 10:20)
+rebase_df <- ReadFasta("../protein_database/download/REBASE_GS_17_11_2020_1002.fasta") %>% 
+  mutate(sequence = gsub(" ","", sequence),Source="REBASE") %>% 
+  separate(name, 
+           into=c("Gene","recognition_sequence","length"), 
+           sep="  ", 
+           extra="merge") %>%
+  mutate(recognition_sequence = ifelse(recognition_sequence=="",NA,recognition_sequence),
+         Locus = Gene, metadata=paste0("recognition_sequence: ",recognition_sequence))
+
+# Custom UniProt MLST list S. enterica (Achtman 7 MSLT)
+uniprot_achtmann_df <- read_csv("../protein_database/download/Uniprot_Achtmann_list.csv",col_types = "ccc") %>%
+  group_by(Uniprot)%>%
+  mutate(metadata = Read_Uniprot_Fasta(Uniprot)[1],sequence = Read_Uniprot_Fasta(Uniprot)[2],Source="Uniprot_Achtmann") %>%
+  ungroup()
+
+# Custom UniProt VF list S. enterica(16 vf genes)
+uniprot_vf_df <- read_csv("../protein_database/download/Uniprot_VF_list.csv",col_types = "ccc") %>%
+  group_by(Uniprot)%>%
+  mutate(metadata = Read_Uniprot_Fasta(Uniprot)[1],sequence = Read_Uniprot_Fasta(Uniprot)[2],Source="UniProt_VF") %>%
+  ungroup()
+
+# VFDB protein list (218 genes, 1536 sequences)
+vfdb_genes <- read_csv("../protein_database/download/VFDB_VF_list.csv",col_types = "cc")
+vfdb_df <- 
+  ReadFasta("../protein_database/download/VFDB_setB_pro.fas") %>% 
+  separate(name, into=c("id","Gene","metadata"), sep=" ", extra="merge") %>%
+  mutate(Gene = gsub(")","",gsub("\\(","",Gene)),Source="VFDB") %>%
+  filter(Gene %in% vfdb_genes$Gene) %>%
+  filter(str_detect(metadata,"Salmonella")|str_detect(metadata,"Escherichia")) %>%
+  select(-id) %>% left_join(vfdb_genes,by="Gene")
+rm(vfdb_genes)
+```
+
+### Combining dataframes
+The dataframes created in the previous step need to be combined. This redundant dataframe is written to a csv file, in case later analysis requires quick acces of (meta)data. We consider this dataframe redundant as it might contain copies of the same gene, with a different name or slighlty different sequence. 
+```{r}
+# Add all dataframes together as a redundant database and save to csv for source identification
+selected_columns <- c("Locus","sequence","Source","Gene","metadata")
+redundant_df <- 
+  full_join(vfdb_df,
+            full_join(cgMLST_df,
+                      full_join(uniprot_vf_df,
+                                full_join(uniprot_achtmann_df,rebase_df,
+                                          by=selected_columns),by=selected_columns),
+                      by=selected_columns),
+            by=selected_columns) %>%
+  select(Gene,Locus,sequence,Source,metadata) %>%
+  group_by(sequence) %>%
+  mutate(duplicates = n()-1) %>%
+  ungroup()
+
+
+# Write redundant dataframe to file
+redundant_df %>% write_csv("../protein_database/reference_files/senterica_pdb_redundant.csv") %>% filter()
+
+```
+
+# Filtering database for identical sequences
+```{r}
+# First filter out overlap between sequences from cgMLST and all other sources
+duplicates_df <- redundant_df %>%
+  filter(duplicates > 0 & Source=="cgMLST") %>%
+  select(-duplicates)
+# Then, only select 1 REBASE gene per sequence and add all others to the duplicates list
+duplicates_df <- redundant_df %>% 
+  filter(!Locus %in% duplicates_df$Locus) %>%
+  group_by(sequence) %>%
+  mutate(duplicates = row_number()) %>% 
+  filter(duplicates > 1) %>%
+  select(-duplicates) %>%
+  full_join(duplicates_df,by=selected_columns)
+# Remove the duplicates list from the redundant sequence list, creating the non-redundant sequence list. Add a new ID to each sequence
+non_redundant_df <- redundant_df %>% filter(!Locus %in% duplicates_df$Locus)
+non_redundant_df$SeqID <- sprintf("%04.0f",1:length(non_redundant_df$Locus))
+non_redundant_df <- non_redundant_df %>% mutate(SeqID = paste0(">NR_00",SeqID,".1"))
+# Note for each duplicate, which gene could have been annotated in it's place
+duplicates_df <- duplicates_df %>% group_by(Locus) %>% mutate(annotated = non_redundant_df$Locus[non_redundant_df$sequence == sequence])
+
+# Write both lists to respective csv-files
+write_csv(duplicates_df, "../protein_database/reference_files/senterica_pdb_duplicates.csv")
+write_csv(non_redundant_df,"../protein_database/reference_files/senterica_pdb_vnon_redundant.csv")
+```
+
+# Write sequences to Prokka-compatible fasta file
+```{r}
+fileConn <- file("../protein_database/database/senterica_pdb.fasta")
+writeLines(paste0(non_redundant_df$SeqID,
+                  " ~~~XXX",
+                  non_redundant_df$Locus,
+                  "XXX~~~\n",
+                  non_redundant_df$sequence),
+           fileConn)
+close(fileConn)
+print(paste0(
+  "Our custom database now contains ",
+  length(non_redundant_df$SeqID),
+  " proteins."
+))
+```
+
+
+
+

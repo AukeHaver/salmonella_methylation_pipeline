@@ -8,17 +8,17 @@ make_analysis_file <- function(design_dataframe,setup_dataframe){
   if(!setup_dataframe$Include_Reference){
     output_design <- output_design%>% filter(!Sequence_type=="reference")
   }
-  # Add unicycler assembly if required
-  if(setup_dataframe$Include_Unicycler){
+  # Add Hybrid assembly if required
+  if(setup_dataframe$Include_Hybrid){
     output_design <-
       # Read design
       design_dataframe %>%
       rowwise() %>%
       # Change varables to correct type
-      mutate(Sample = gsub(".*_","unicycler_",Sample),
-             Sequence_type = "unicycler",
+      mutate(Sample = gsub(".*_","hybrid_",Sample),
+             Sequence_type = "hybrid",
              Reference = paste0(
-               gsub(".*_","unicycler_",Sample),
+               gsub(".*_","hybrid_",Sample),
                ".gff")) %>%
       full_join(output_design,by=colnames(output_design))}
   # Add pangenome assembly if required
@@ -34,17 +34,17 @@ make_analysis_file <- function(design_dataframe,setup_dataframe){
                gsub(".*_","pangenome_",Sample),
                ".gff")) %>%
       full_join(output_design,by=colnames(output_design))}
-  # Add clcbio assembly if required
-  if(setup_dataframe$Include_Clcbio){
+  # Add external assembly if required
+  if(setup_dataframe$Include_External){
     output_design <-
       # Read design
       design_dataframe %>%
       rowwise() %>%
       # Change varables to correct type
-      mutate(Sample = gsub(".*_","clcbio_",Sample),
-             Sequence_type = "clcbio",
+      mutate(Sample = gsub(".*_","external_",Sample),
+             Sequence_type = "external",
              Reference = paste0(
-               gsub(".*_","clcbio_",Sample),
+               gsub(".*_","external_",Sample),
                ".gff")) %>%
       full_join(output_design,by=colnames(output_design))}
   return(output_design %>%
@@ -69,14 +69,8 @@ generate_unicycler_commands <- function(design_dataframe,directory){
       "-l ../sequencing_data/PacBio_reads/Sample-", 
       sample_number,
       ".fastq ",
-      "-o unicycler_", 
-      sample_number,
-      " && cp unicycler_", 
-      sample_number,
-      "/assembly.fasta ",
-      "output/unicycler_", 
-      sample_number,
-      ".fasta'"
+      "-o hybrid_", 
+      sample_number,"'"
     ))
   }
   # Make a list of all lines to write to the script file
@@ -108,7 +102,7 @@ generate_unicycler_commands <- function(design_dataframe,directory){
 # Can be modified for pangenome generation from other sources
 generate_seq_seq_pan_commands <- function(design_dataframe,directory){
   # Create a assembly list file from unicycler assemblies
-  paste0("../unicycler/unicycler",
+  paste0("../hybrid/hybrid",
          gsub("reference","",design_dataframe$Sample),
          "/assembly.fasta") %>%
     write_lines("../seq_seq_pan/assembly_list.txt")
@@ -135,6 +129,7 @@ generate_seq_seq_pan_commands <- function(design_dataframe,directory){
 
 ### Function for generating individual annotatino command
 generate_prokka_command <- function(sample,sequence_type,reference){
+  sample_number <- gsub(".*_","",sample)
   return(
     paste0(
       "bsub -q bio 'prokka --outdir ../prokka/", sample, " \\\n",
@@ -145,13 +140,14 @@ generate_prokka_command <- function(sample,sequence_type,reference){
       "--proteins ../protein_database/database/senterica_pdb.fasta \\\n",
       "--locustag SE",
       str_split(sequence_type,"")[[1]][1] %>% toupper(),
-      Sys.Date() %>% str_remove_all("-")," \\\n",
+      sample_number,
+      format(Sys.Date(),format= "%d%m%y")," \\\n",
       # In case the sample is a reference genome
       ifelse(sequence_type == "reference", paste0("../REF/",gsub(pattern=".gff",replacement =".fasta",reference)),
-             # In case the sample is from unicycler
-             ifelse(sequence_type == "unicycler",paste0("../unicycler/",sample,"/assembly.fasta"),
-                    # In case the sample is from clcbio
-                    ifelse(sequence_type== "clcbio",paste0("../clcbio/",sample,".fasta"),
+             # In case the sample is a hybrid
+             ifelse(sequence_type == "hybrid",paste0("../unicycler/",sample,"/assembly.fasta"),
+                    # In case the sample is from external
+                    ifelse(sequence_type== "external",paste0("../external/",sample,".fasta"),
                            # In case the sample is the pangenome
                            ifelse(sequence_type=="pangenome",paste0("../seq_seq_pan/output/pangenome_consensus.fasta"),"error")))),
       " && \\\n",
@@ -180,9 +176,6 @@ generate_prokka_commands <- function(design_dataframe,directory){
     "",
     "# Move to correct working directory:",
     paste0("cd ",file.path(directory,"prokka",fsep="/")),
-    "",
-    "# Make neccessary directory:",
-    "mkdir prokka",
     "",
     "# Annotate Genomes:",
     unique(commands),
