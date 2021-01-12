@@ -122,7 +122,7 @@ duplicates_df <- duplicates_df %>% group_by(Locus) %>% mutate(annotated = non_re
 
 # Write both lists to respective csv-files
 write_csv(duplicates_df, "../protein_database/reference_files/senterica_pdb_duplicates.csv")
-write_csv(non_redundant_df,"../protein_database/reference_files/senterica_pdb_vnon_redundant.csv")
+write_csv(non_redundant_df,"../protein_database/reference_files/senterica_pdb_non_redundant.csv")
 ```
 
 # Write sequences to Prokka-compatible fasta file

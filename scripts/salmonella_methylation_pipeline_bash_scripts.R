@@ -224,12 +224,12 @@ generate_smrtlink_commands_part_1 <- function(read_files,directory){
 #### Function for generating alignment commands
 # Sub function for index command
 generate_index_command <- function(string){
-  return(paste0("bsub -q bio bpmm2 index REF/",string,".fasta REF/",string,".mmi"))}
+  return(paste0("bsub -q bio pbmm2 index ../REF/",string,".fasta ../REF/",string,".mmi"))}
 # Sub function for align command
 generate_align_command <- function(string){
   sample_number <- gsub(".*_","",string)
   sample_type <- gsub(sample_number,"",string)
-  return(paste0("bsub -q bio bpmm2 align --sort REF/",
+  return(paste0("bsub -q bio pbmm2 align --sort ../REF/",
                 string,
                 ".mmi ../sequencing_data/demultiplex/sample_",
                 sample_number,".bam alignment/",sample_number,"_",sample_type,"aligned_pbmm2.bam"))}
@@ -237,7 +237,7 @@ generate_align_command <- function(string){
 generate_bpindex_command <- function(string){
   sample_number <- gsub(".*_","",string)
   sample_type <- gsub(sample_number,"",string)
-  return(paste0("bsub -q bio bpindex alingment/",sample_number,"_",sample_type,"aligned_pbmm2.bam"))
+  return(paste0("bsub -q bio pbindex alignment/",sample_number,"_",sample_type,"aligned_pbmm2.bam"))
 }
 # Main function
 generate_smrtlink_commands_part_2 <- function(design_dataframe,directory){
@@ -262,6 +262,7 @@ generate_smrtlink_commands_part_2 <- function(design_dataframe,directory){
     "",
     "# pbindex bam files:",
     lapply(design_dataframe$Sample,FUN=generate_bpindex_command)%>% unlist(),
+    "",
     "# Deactivate environment",
     "conda deactivate")%>%
     write_lines("../scripts/6_smrtlink_bash_part_2.txt")
@@ -277,15 +278,15 @@ generate_basemod_calling_command <- function(string){
   sample_number <- gsub(".*_","",string)
   sample_type <- gsub(sample_number,"",string)
   return(paste0(
-    "bsub -q bio 'ipdSummary alignment/",sample_number,"_",sample_type,"aligned_bpmm2.bam \\\n",
+    "bsub -q bio 'ipdSummary alignment/",sample_number,"_",sample_type,"aligned_pbmm2.bam \\\n",
     "--reference ../REF/", string,".fasta \\\n",
-    "numWorkers 6",
-    "identify m6A,m4C \\\n",
-    "minCoverage 75 \\\n",
-    "mapQvThreshold 60 \\\n",
-    "methylFraction \\\n",
-    "pvalue 0.001 \\\n",
-    "outfile basemods/basemod_",string," \\\n",
+    "--numWorkers 6 \\\n",
+    "--identify m6A,m4C \\\n",
+    "--minCoverage 75 \\\n",
+    "--mapQvThreshold 60 \\\n",
+    "--methylFraction \\\n",
+    "--pvalue 0.001 \\\n",
+    "--outfile basemods/basemod_",string," \\\n",
     "--gff basemods/basemod_",string,".gff' \n"
   ))
 }

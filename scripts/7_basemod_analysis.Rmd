@@ -1,0 +1,352 @@
+---
+title: "Salmonella enterica basemod analysis"
+author: "Auke Haver"
+date: "Januari 12, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#install.packages("ggplot2")
+library(ggplot2)
+#install.packages("rtracklayer")
+library(rtracklayer,warn.conflicts = FALSE)
+#install.packages("tidyverse")
+library(tidyverse,warn.conflicts = FALSE)
+#install.packages('dendextend')
+source("salmonella_methylation_pipeline_analysis_scripts.R")
+library(kableExtra,warn.conflicts = FALSE)
+library(gridExtra)
+```
+
+# Read design file
+```{r}
+# read info file, only including the hybrid basemods
+design <- read_tsv("../info/analysis_design.tsv",col_types="ccccc") %>%
+  filter(Sequence_type == "hybrid")
+# non-redundant protein database
+nr_pdb <- read.csv("../database/senterica_pdb_v3_non_redundant.csv")
+# duplicate protein database
+d_pdb <- read.csv("../database/senterica_pdb_v3_duplicates.csv")
+
+```
+
+# Annotate basemods (+/-8 min per sample)
+```{r}
+for(i in 1:nrow(design)){
+  annotate_basemods(design$Sample[i],design$Reference[i])
+}
+```
+
+# Match motifs to basemods (+/-3 min per sample)
+```{r}
+make_motif_overview(design,"../smrtlink/")
+```
+
+# Read motif TSV files into a dataframe
+```{r}
+# Iterate over all samples
+for(i in 1:nrow(design)){
+  # Initiate the dataframe from the first sample
+  if(i==1){
+    motif_overview_df <- 
+      # Make file path
+      paste0("../filtered_motifs/matched_motifs_",design$Sample[i],".tsv") %>%
+      # Read file
+      read_tsv(col_types = "cciiccnncliiicc")
+  }
+  # Append all other samples to the dataframe
+  else{
+    motif_overview_df <- 
+      # Make file path
+      paste0("../filtered_motifs/matched_motifs_",design$Sample[i],".tsv") %>%
+      # Read file
+      read_tsv(col_types = "cciiccnncliiicc") %>%
+      # Append to dataframe
+      full_join(motif_overview_df,by = colnames(motif_overview_df))
+  }
+}
+```
+
+# Read genes into a dataframe
+```{r}
+# Read all annotated genes of all samples into one large dataframe
+for(i in 1:nrow(design)){
+  # Initiate the dataframe from the first sample
+  if(i==1){
+    annotated_genes <-
+      # Read file
+      read_annot_df(design$Reference[i],"../REF") %>%
+      # Cleanup gene annotation
+      clean_gene_annotation %>%
+      # Add sample name
+      mutate(sample = design$Sample[i])
+  }
+  # Append all other samples to the dataframe
+  else{
+    annotated_genes <-
+      # Read file
+      read_annot_df(design$Reference[i],"../REF") %>%
+      # Cleanup gene annotation
+      clean_gene_annotation %>%
+      # Add sample name
+      mutate(sample = design$Sample[i]) %>%
+      # Append to dataframe
+      full_join(annotated_genes, by = colnames(annotated_genes))
+  }
+}
+```
+
+# Correct motif annotations for possible motifs and duplicates
+```{r}
+# First, check if a motif is duplicates in the dataframe (for instance both CGACG and GCAGC are annotated).
+annotated_motifs <- motif_overview_df$motif %>% unique()
+# Make a list of unique motifs
+unique_motifs <- vector(mode="list")
+# Loop over all motifs and only add them to the unique list if neither the motif nor the complement is already in the list
+for(i in 1:length(annotated_motifs)){
+  if(!annotated_motifs[i] %in% unique_motifs & !reverse_complement(annotated_motifs[i])%in% unique_motifs){
+    unique_motifs <- c(unique_motifs,annotated_motifs[i])
+  }
+}
+unique_motifs <- unique_motifs%>% unlist()
+corrected_motif_overview_df <- motif_overview_df %>%
+  rowwise()%>%
+  mutate(motif = ifelse(!motif %in% unique_motifs,reverse_complement(motif),motif),
+         # Then, check if the motif is a match with at least one MTase.
+          # If not, check if its reverse complement is and if so, change the motif to its reverse complement.
+         motif = ifelse(reverse_complement(motif) %in% mtase_genes_df$motif,reverse_complement(motif),motif))
+```
+
+
+# Make an overview of all motif counts in each sample, both for all genes and only in virulence genes
+```{r}
+vf_genes <- non_redundant_protein_db$Locus[non_redundant_protein_db$Source=="VFDB"|non_redundant_protein_db$Source=="UniProt_VF"] %>% as.character()
+
+corrected_motif_overview_df %>% select(sample,motif,Name) %>%
+  rowwise() %>%
+  mutate(viral_gene_motif = ifelse(Name %in% vf_genes,1,0)) %>%
+  group_by(sample,motif) %>%
+  mutate(motif_count_total = as.integer(n()),
+         motif_count_vf = as.integer(sum(viral_gene_motif))) %>%
+  ungroup()%>%
+  select(sample,motif,motif_count_total,motif_count_vf)%>%
+  group_by(sample)%>%
+  distinct()%>%
+  left_join(design %>% select(Sample,Serovar,Source),
+            by=c("sample"="Sample"))%>%
+  mutate(All_Genes=motif_count_total/sum(motif_count_total%>%as.numeric()),
+         Virulence_Genes=motif_count_vf/sum(motif_count_vf)%>%as.numeric()) %>%
+  pivot_longer(cols=c("All_Genes","Virulence_Genes"),
+               names_to="genes",
+               values_to="percentage")%>%
+  mutate(genes=gsub("_"," ",genes),
+         percentage = percentage*100)%>%
+  select(sample,
+         motif,
+         Source,
+         genes,
+         percentage)%>%
+  ggplot(aes(x=gsub("_"," ",sub("_"," / ",Source)),
+             y=percentage,
+             colour=motif,
+             shape=genes))+
+  geom_jitter(stat="identity",size=3,width=0.2)+
+  scale_colour_viridis_d()+
+  theme_bw()+
+  theme(axis.text.x=element_text(angle=45,hjust=1))+
+  labs(x="Serovar / Source",y="Percentage of all motifs",colour="Methylation Motif",shape="Location within Genome")
+#ggsave("../output/motif_distribution.png")
+
+```
+
+# Match all motifs to mtase genes
+```{r}
+# Make a duplicate mtase dataframe, starting with all genes which are duplicates of genes that have been annotated. 
+# The existence of these duplicates is likely the cause of genes being discovered in different organisms.
+mtase_genes_df <- 
+  duplicate_protein_db %>% 
+  # Filter these duplicates for genes of which the duplicate has been annotated and which is sourced from the REBASE gold standard
+  filter(annotated %in% annotated_genes$gene & Source=="REBASE") %>%
+  # For each of these genes, add the samples in which the duplicate MTase was found.
+  left_join(annotated_genes %>% select(sample,gene,start,end,contig),
+            by=c("annotated"="gene")) %>%
+  mutate(gene=Gene)%>%
+  # Remove colums
+  select(-c(Locus,annotated,sequence)) %>%
+  # Add mtase genes which were annotated in the genomes
+  full_join(annotated_genes %>% filter(Source=="REBASE") %>% select(sample,gene,Source,product,start,end,contig),
+            by=c("sample","gene","Source","metadata"="product","start","end","contig")) %>%
+  # Make a new column for the motif
+  mutate(motif = gsub("recognition_sequence: *","",metadata)) %>%
+  # Remove excess columns
+  select(-c(Gene,metadata))%>%
+  # filter NA values (formatted as "NA" by VFDB)
+  filter(motif!="NA")
+
+# Make an overview of, per sample, the 
+mtase_motif_overview <- mtase_genes_df %>% 
+  select(-Source)%>%
+  full_join(corrected_motif_overview_df %>% 
+              select(sample,motif) %>% 
+              group_by(sample,motif) %>% 
+              mutate(motif_count = n()) %>% 
+              distinct(),
+            by=c("sample","motif")) %>%
+  rowwise()%>%
+  mutate(status=ifelse(is.na(gene),"Only Motif present",
+                       ifelse(is.na(motif_count),"Gene present","Gene & Motif present"))) %>%
+  select(-c(start,end,contig,gene,motif_count))%>%
+  filter(status!="Gene present")%>%
+  distinct()
+mtase_motif_overview$motif %>% unique()
+mtase_motif_overview %>% 
+  pivot_wider(names_from=motif,values_from=status,values_fill="Gene & Motif absent") %>%
+  pivot_longer(names_to="motif",values_to="status",cols=mtase_motif_overview$motif) %>%
+  left_join(design %>% select(Sample,Serovar,Source),
+            by=c("sample"="Sample"))%>%
+  ggplot(aes(x=motif,y=gsub("_"," ",sub("_"," / ",Source)),fill=status))+
+  geom_tile(color="grey")+
+  scale_fill_viridis_d()+
+  theme_minimal()+
+  theme(axis.text.x=element_text(angle=45,hjust=1),legend.position = "bottom",aspect.ratio = 0.6)+
+  labs(fill=NULL,y="Serovar / Source",x="Motif")
+ggsave("../output/motif_methylase_overview.png")
+```
+
+```{r}
+vf_bm_genes <- annotated_genes %>% 
+  filter(gene %in% read_lines("../database/vf_basemod_genes.txt")|Locus %in% read_lines("../database/vf_basemod_genes.txt"))
+
+for(i in 1:nrow(design)){
+  if(i==1){
+    basemod_overview <- paste0("../annotated_motifs/motifs_", design$Sample[i],".gff") %>%
+      readGFF() %>% 
+      filter(Name %in% vf_bm_genes$Locus) %>%
+      left_join(vf_bm_genes %>%
+                  select(Locus,gene),
+                by=c("Name"="Locus")) %>%
+      mutate(sample = design$Sample[i]) 
+  }
+  else{
+    basemod_overview <- paste0("../annotated_motifs/motifs_", design$Sample[i],".gff") %>%
+      readGFF() %>% 
+      filter(Name %in% vf_bm_genes$Locus) %>% 
+      mutate(sample = design$Sample[i])%>%
+      left_join(vf_bm_genes %>%
+                  select(Locus,gene),
+                by=c("Name"="Locus")) %>%
+      full_join(basemod_overview,
+                by = colnames(basemod_overview)) %>%
+      distinct()
+  }
+}
+
+shared_vf_basemods <- basemod_overview %>% rowwise() %>%
+  mutate(gene_start = vf_bm_genes$start[vf_bm_genes$sample==sample &
+                                        vf_bm_genes$start<=start &
+                                        vf_bm_genes$end>=start &
+                                        vf_bm_genes$gene==gene] %>% list()) %>%
+  mutate(gene_start = gene_start[1]) %>%
+  filter(!is.na(gene_start))%>%
+  mutate(gene_end = vf_bm_genes$end[vf_bm_genes$sample==sample &
+                                      vf_bm_genes$start==gene_start &
+                                      vf_bm_genes$gene==gene],
+         gene_length = gene_end-gene_start+1,
+         gene_variant = paste0(gene,"_",gene_length),
+         gene_index = start - gene_start) %>%
+  select(sample,type,gene_variant,gene_index,gene_start,score,strand,coverage,IPDRatio,motif,sense_antisense,frac,fracLow,fracUp,identificationQv) %>%
+  arrange(gene_variant,gene_index,sample)
+
+shared_vf_basemods %>% select(gene_variant,gene_index)%>% distinct()%>% nrow()
+```
+
+# Calculate basemod differences between strains
+```{r}
+basemod_distances <- shared_vf_basemods %>% select(sample,gene_variant,gene_index) %>%
+  mutate(modified = 1) %>%
+  distinct() %>%
+  mutate(location = paste0(gene_variant, "_",gene_index))%>%
+  select(-c(gene_variant,gene_index))%>%
+  group_by(location)%>%
+  pivot_wider(names_from = sample,values_from=modified,values_fill=0) %>%
+  column_to_rownames("location") %>% 
+  as.matrix() %>% 
+  t() %>% 
+  dist(method="manhattan") %>% 
+  as.matrix() %>% 
+  as.tibble()
+```
+
+# Create a heatmap of basemod differences between strains
+```{r}
+basemod_distances %>%
+  mutate(query = colnames(basemod_distances)) %>%
+  pivot_longer(cols=colnames(basemod_distances),names_to="match",values_to="distance") %>%
+  rowwise()%>%
+  mutate(query = design$Source[design$Sample==query],
+         match = design$Source[design$Sample==match])%>%
+  ggplot(aes(x=gsub("_"," ",sub("_"," / ",query)),
+             y=gsub("_"," ",sub("_"," / ",match)),
+             fill=distance))+
+  geom_tile() + 
+  scale_fill_viridis_c()+
+  geom_text(aes(label=distance),size=3)+
+  theme_minimal()+
+  theme(axis.text.x=element_text(angle=45,hjust=1),aspect.ratio = 1)+
+  labs(fill="Different Base Modifications",y="Serovar / Source",x="Serovar / Source")
+ggsave("../output/basemod_analysis_plots/vf_basemod_differences_heatmap.png")
+```
+
+# Calculate basemod counts per gene per strain
+```{r}
+shared_vf_basemods_counts <-shared_vf_basemods %>% 
+  group_by(sample,gene_variant)%>%
+  summarize(count=n())%>%
+  group_by(gene_variant)%>%
+  mutate(mean = mean(count),
+         corrected_count = count/mean(count))%>% 
+  ungroup()%>%
+  mutate(gene_variant = as.factor(gene_variant))%>%
+  left_join(design %>% select(Sample,Serovar,Source),
+            by=c("sample"="Sample"))
+vf_gene_variants <- shared_vf_basemods_counts$gene_variant %>% unique()
+```
+
+# Plot corrected basemod count per gene per strain
+```{r}
+# Function to make a basemod dotplot
+make_vf_basemod_count_plot <- function(vf_basemod_count_dataframe,genes){
+  vf_basemod_count_dataframe %>%
+  filter(gene_variant %in% genes)%>%
+  ggplot(aes(x=gene_variant,
+             y=corrected_count,
+             color=gsub("_"," ",sub("_"," / ",Source))))+
+  geom_point(size=.5)+
+  geom_jitter(width=0.1)+
+  theme_light()+
+  ylim(0,2.8)+
+  theme(axis.text.x=element_text(angle=90,hjust=1,size=4),
+        axis.title.x = element_blank(),
+        axis.text.y=element_text(size=4),
+        axis.title.y = element_text(size=4),
+        legend.position = "NULL",
+        legend.box="horizontal",
+  axis.ticks=element_blank())+
+  scale_color_viridis_d() +
+  labs(color="Serovar / Source",y="Corrected Basemod Count",x="Gene") +
+  guides(color = guide_legend(title.position="top", title.hjust = 0.5))}
+
+#
+grid.arrange(make_vf_basemod_count_plot(shared_vf_basemods_counts,vf_gene_variants[1:44]),
+             make_vf_basemod_count_plot(shared_vf_basemods_counts,vf_gene_variants[45:89]),
+             make_vf_basemod_count_plot(shared_vf_basemods_counts,vf_gene_variants[90:131]),
+             ncol=1) %>% 
+  ggsave(file="../output/vf_basemod_dotplot.png")
+
+```
+
+

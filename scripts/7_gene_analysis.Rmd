@@ -1,0 +1,219 @@
+---
+title: "Salmonella enterica gene analysis"
+author: "Auke Haver"
+date: "December 28, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#install.packages("ggplot2")
+library(ggplot2)
+#install.packages("rtracklayer")
+library(rtracklayer,warn.conflicts = FALSE)
+#install.packages("tidyverse")
+library(tidyverse,warn.conflicts = FALSE)
+#install.packages('dendextend')
+source("salmonella_methylation_pipeline_analysis_scripts.R")
+library(kableExtra,warn.conflicts = FALSE)
+#install.packages("VennDiagram")
+library(VennDiagram)
+library(xtable)
+```
+
+```{r}
+# Design used for analysis
+analysis_design <- 
+  "../info/analysis_design.tsv" %>% 
+  read_tsv(col_types="ccccc")
+# Non-redundant protein database
+nr_pdb <- 
+  "../protein_database/reference_files/senterica_pdb_non_redundant.csv" %>%
+  read.csv()
+# Duplicate PDB
+d_pdb <- "../protein_database/reference_files/senterica_pdb_duplicates.csv" %>%
+  read.csv()
+# Virulence genes
+virulence_factors <- full_join(
+  "../protein_database/download/Uniprot_VF_list.csv" %>% read_csv(col_types="ccc"),
+  "../protein_database/download/VFDB_VF_list.csv" %>% read_csv(col_types="cc"),
+  by=c("Locus","Gene")) %>%
+  select(-Uniprot)
+```
+
+# Read genes into a dataframe
+```{r}
+# Read all annotated CDS of all samples into one large dataframe, if the sample is a pangenome, only change sample name to "pangenome"
+for(i in 1:nrow(analysis_design)){
+  if(i ==1){
+    annotated_cds <- 
+      paste0("../REF/",analysis_design$Reference[i]) %>% 
+      readgff() %>% 
+      mutate(sample = ifelse(analysis_design$Sequence_type[i]=="pangenome",
+                             "pangenome", 
+                             analysis_design$Sample[i])) %>%
+      cleangff()
+    } else {
+    annotated_cds <- 
+      paste0("../REF/",analysis_design$Reference[i]) %>% 
+      readgff() %>%
+      mutate(sample = ifelse(analysis_design$Sequence_type[i]=="pangenome",
+                             "pangenome", 
+                             analysis_design$Sample[i])) %>%
+      cleangff() %>%
+      full_join(annotated_cds,by=colnames(annotated_cds))}
+}
+
+# Add metadata info from non_redundant_protein_db to the dataframe of annotated genes
+annotated_genes <- nr_pdb %>%
+  rowwise()%>%
+  mutate(protein_id = SeqID,
+         product = as.character(metadata),
+         Gene = as.character(Gene),
+         Locus = as.character(Locus),
+         Source=as.character(Source)) %>%
+  select(-c(sequence,SeqID,duplicates,metadata)) %>%
+  right_join(annotated_cds,by="protein_id") %>%
+  rowwise() %>%
+  mutate(Source=ifelse(is.na(Source),"UniProtKB",Source),
+         gene = ifelse(is.na(Gene),gene,Gene),
+         product = ifelse(is.na(product.x),product.y,product.x),
+         sequence_length=end-start+1)%>%
+  select(-c(seqid,Gene,product.x,product.y)) %>%
+  relocate(sample,contig,type,start,end,strand,gene,Locus,Name,Source,sequence_length,product) %>%
+  distinct()
+```
+
+```{r}
+# Make a summary of all annotated genes per sample and save to file
+annotated_genes %>%
+  rowwise()%>%
+  mutate(category = determine_annotation_category(type,product,Source))%>%
+  group_by(sample,category) %>%
+  summarize(count=n()) %>% pivot_wider(names_from = category,values_from=count) %>%
+  write_tsv("../output/gene_analysis/annotation_counts_total.tsv")
+
+# Make a summary of all core-genome and all pan-genome genes
+overview_cg_pg <- annotated_genes %>%
+  filter(sample != "pangenome") %>%
+  select(sample,type,gene,Locus,Source,product) %>%
+  rowwise()%>%
+  mutate(category = determine_annotation_category(type,product,Source)) %>%
+  filter(type=="CDS" & category!="hypothetical protein") %>%
+  select(-product)%>%
+  distinct() %>%
+  group_by(type,gene,Locus)%>%
+  mutate(presence = ifelse(n()==8,"core_genome","pan_genome")) %>%
+  ungroup()
+# Summarize category counts in cg and pg
+overview_cg_pg %>%
+  select(gene,Locus,category,presence) %>%
+  distinct()%>%
+  group_by(category,presence) %>%
+  summarize(count=n()) %>%
+  pivot_wider(names_from = presence,values_from=count) %>%
+  write_tsv("../output/gene_analysis/category_counts_unique.tsv")
+```
+
+# Make an overview of core-genome virulence factors which are highly similar in sequence and length
+```{r}
+# List of unique core-genome (cg) virulence factor (vf) genes
+cg_vf_list <- overview_cg_pg %>% 
+  filter(presence=="core_genome" & category=="Virulence Factor") %>% 
+  pull(gene) %>% 
+  unique()
+
+# Make a list of cg vf genes which have the same protein sequence source and size in all genomes, and therefore are highly similar (hs).
+hs_cg_vf_genes <- annotated_genes %>%
+  filter(sample!="pangenome"& gene %in% cg_vf_list & type=="CDS")%>%
+  select(sample,protein_id,sequence_length)%>%
+  distinct()%>%
+  group_by(protein_id,sequence_length)%>%
+  filter(n()%%8==0) %>%
+  select(-sample)%>%
+  distinct() %>%
+  mutate(id_length = paste0(protein_id,"_",sequence_length)) %>%
+  pull("id_length")
+
+# Make an overview of all annotations of these genes and save as a tsv file
+annotated_genes %>%
+  filter(paste0(protein_id,"_",sequence_length) %in% hs_cg_vf_genes & sample != "pangenome") %>%
+  write_tsv("../output/gene_analysis/highly_similar_cg_vf_genes.tsv")
+```
+
+```{r}
+# Make a duplicate mtase dataframe, starting with all genes which are duplicates of genes that have been annotated. 
+# The existence of these duplicates is likely the cause of genes being discovered in different organisms.
+mtase_genes_df <- 
+  d_pdb %>% 
+  # Filter these duplicates for genes of which the duplicate has been annotated and which is sourced from the REBASE gold standard
+  filter(annotated %in% annotated_genes$gene & Source=="REBASE") %>%
+  # For each of these genes, add the samples in which the duplicate MTase was found.
+  left_join(annotated_genes %>% select(sample,gene,start,end,contig),
+            by=c("annotated"="gene")) %>%
+  mutate(gene=Gene)%>%
+  # Remove colums
+  select(-c(Locus,annotated,sequence)) %>%
+  # Add mtase genes which were annotated in the genomes
+  full_join(annotated_genes %>% filter(Source=="REBASE") %>% select(sample,gene,Source,product,start,end,contig),
+            by=c("sample","gene","Source","metadata"="product","start","end","contig")) %>%
+  # Make a new column for the motif
+  mutate(motif = gsub("recognition_sequence: *","",metadata)) %>%
+  # Remove excess columns
+  select(-c(Gene,metadata))%>%
+  # filter NA values (formatted as "NA" by VFDB)
+  filter(motif!="NA") %>%
+  rowwise()%>%
+  # add serovar
+  select(-Source)%>%
+  left_join(analysis_design %>% select(Sample,Source),
+            by=c("sample"="Sample"))%>%
+  select(Source,contig,start,motif,gene)%>%
+  filter(!is.na(Source))
+
+# Make an overview of, per CDS (or site), how many RM elements are found related to a motif and list one of them.
+rm_element_overview <- mtase_genes_df %>%
+  select(Source,contig,start)%>%
+  distinct()%>%
+  group_by(Source)%>%
+  arrange(contig,start)%>%
+  mutate(site = paste0("site ",row_number())) %>%
+  right_join(mtase_genes_df,
+             by=c("Source","contig","start")) %>%
+  group_by(Source,site,start,motif)%>%
+  summarize(`Homologous RM elements` = n()) %>%
+  ungroup()%>%
+  left_join(mtase_genes_df %>% 
+              group_by(Source,contig,start,motif) %>%
+              arrange(gene)%>%
+              filter(row_number()==1),
+             by=c("Source","start","motif")) %>% 
+  rename(gene="Putative RM element",
+         motif="Motif",
+         contig="Contig",
+         site="Site",
+         Source="Sample",
+         start="Start")%>%
+  select(Sample,Site,Motif,`Homologous RM elements`,`Putative RM element`) %>%
+  arrange(Sample,Site)
+
+# Write to TSV file
+rm_element_overview %>%
+  write_tsv("../output/gene_analysis/rm_overview_latex_table.tsv")
+
+# Write to .tex file
+rm_element_overview %>% 
+  kable(format="latex",
+        vline="",
+        booktabs=TRUE,
+        longtable=TRUE) %>%
+  collapse_rows(columns=c(1:4),
+                valign="top",
+                longtable_clean_cut = FALSE) %>%
+  cat(file="../output/gene_analysis/rm_overview_latex_table.tex",
+      sep="\n")
+```
+
