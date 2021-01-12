@@ -1,4 +1,4 @@
-# packages in environment at /home/haverau/.conda/envs/prokka_annotater:
+# packages in environment at /home/haverau/.conda/envs/prokka_env:
 #
 # Name                    Version                   Build  Channel
 _libgcc_mutex             0.1                 conda_forge    conda-forge
