@@ -1,5 +1,5 @@
 Sample	Sequence_type	Reference	Serovar	Source
 reference_01	reference	reference_01.gff	SirRobin	SirRobin_Camelot
-unicycler_02	unicycler	unicycler_02.gff	SirLancelot	SirLancelot_Camelot
+hybrid_02	hybrid	hybrid_02.gff	SirLancelot	SirLancelot_Camelot
 pangenome_03	pangenome	pangenome_03.gff	SirBorisTheYounger	SirBorisTheYounger_Camelot
-clcbio_04	clcbio	clcbio_04.gff	SirPercival	SirPercival_Camelot
+external_04	external	external_04.gff	SirPercival	SirPercival_Camelot
