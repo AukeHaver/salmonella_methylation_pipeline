@@ -318,7 +318,7 @@ annotate_basemods <- function(sample_name,reference){
   # First, make a dataframe from the Prokka annotation .gff file.
   annot_df <- 
     # The file is located in the REF directory
-    readgff(paste0("../REF/",reference))
+    readgff(paste0("../REF/",reference))%>%
     # A leading and trailing "XXX" was added before annotation with Prokka to preserve Locustag names.
     mutate(Name = gsub("XXX","",Name),
            # The sequence ID contains the contig identifier.
@@ -330,7 +330,7 @@ annotate_basemods <- function(sample_name,reference){
     select(contig,start,end,Name,strand)
   # Then, make a dataframe from the motifmaker basemods and match basemods to genes. 
   # This dataframe is not stored in the environment but immediately exported to a .gff file.
-  readgff(paste0("../smrtlink/motifs_",sample_name,".gff")) 
+  readgff(paste0("../smrtlink/motifs/motifs_",sample_name,".gff")) %>%
     # Again the contig number is extracted from the sequence ID.
     mutate(contig = gsub("^.*_","",seqid)) %>% 
     # All gene mapping needs to be performed in a rowwise fashion. 
@@ -389,7 +389,7 @@ return_gene_index <- function(motif_df){
   )
 }
 
-make_motif_overview<-function(info_file,destination_folder){
+make_motif_matches<-function(info_file,destination_folder){
   for(i in 1:nrow(info_file)){
     annot <- read_annot_df(info_file$Reference[i],"../REF/")
     overview_df <- readGFF(paste0("../smrtlink/annotated_motifs/motifs_",info_file$Sample[i],".gff")) %>%
@@ -400,3 +400,57 @@ make_motif_overview<-function(info_file,destination_folder){
              sample = info_file$Sample[i],
              serovar= info_file$Serovar[i]) %>%
       write_tsv(paste0(destination_folder,"/matched_motifs_",info_file$Sample[i],".tsv"))}}
+
+### Function to read annotated CDS into dataframe and combine with protein database 
+# If the sample is a pangenome, only change sample name to "pangenome"
+read_annotation_overview <-function(design_file,annotation_directory,protein_database){
+  for(i in 1:nrow(design_file)){
+    if(i ==1){
+      annotated_genes_overview <- 
+        paste0(annotation_directory,design_file$Reference[i]) %>% 
+        readgff() %>% 
+        # If the sample is a pangenome, only change sample name to "pangenome"
+        mutate(sample = ifelse(design_file$Sequence_type[i]=="pangenome",
+                               "pangenome", 
+                               design_file$Sample[i])) %>%
+        cleangff()
+    } else {
+      annotated_genes_overview <- 
+        paste0("../REF/",design_file$Reference[i]) %>% 
+        readgff() %>%
+        mutate(sample = ifelse(design_file$Sequence_type[i]=="pangenome",
+                               "pangenome", 
+                               design_file$Sample[i])) %>%
+        cleangff() %>%
+        full_join(annotated_genes_overview,
+                  by=colnames(annotated_genes_overview))}
+  }
+  # Add metadata info from non_redundant_protein_db to the dataframe of annotated genes
+  annotated_genes_overview <- protein_database %>%
+    rowwise()%>%
+    mutate(protein_id = SeqID,
+           product = as.character(metadata),
+           Gene = as.character(Gene),
+           Locus = as.character(Locus),
+           Source=as.character(Source)) %>%
+    select(-c(sequence,SeqID,duplicates,metadata)) %>%
+    right_join(annotated_genes_overview,by="protein_id") %>%
+    rowwise() %>%
+    mutate(Source=ifelse(is.na(Source),"UniProtKB",Source),
+           gene = ifelse(is.na(Gene),gene,Gene),
+           product = ifelse(is.na(product.x),product.y,product.x),
+           sequence_length=end-start+1)%>%
+    select(-c(seqid,Gene,product.x,product.y)) %>%
+    relocate(sample,contig,type,start,end,strand,gene,Locus,Name,Source,sequence_length,product) %>%
+    distinct()
+  return(annotated_genes_overview)
+  
+}
+
+# Function to write motif is short form
+short_motif_form <- function(motif_string){
+  return(
+    gsub(pattern="N+",
+         replacement=paste0("N",str_count(motif_string,"N")),
+         motif_string))
+}

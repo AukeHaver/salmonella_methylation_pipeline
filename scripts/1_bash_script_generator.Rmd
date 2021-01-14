@@ -68,6 +68,3 @@ generate_smrtlink_commands_part_3(analysis_design,working_directory)
 generate_smrtlink_commands_part_4(analysis_design,working_directory)
 ```
 
-
-
-

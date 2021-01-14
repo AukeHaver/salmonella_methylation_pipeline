@@ -46,7 +46,7 @@ virulence_factors <- full_join(
 
 # Read genes into a dataframe
 ```{r}
-# Read all annotated CDS of all samples into one large dataframe, if the sample is a pangenome, only change sample name to "pangenome"
+# Read all annotated CDS of all samples into one large dataframe
 for(i in 1:nrow(analysis_design)){
   if(i ==1){
     annotated_cds <- 
@@ -66,25 +66,9 @@ for(i in 1:nrow(analysis_design)){
       cleangff() %>%
       full_join(annotated_cds,by=colnames(annotated_cds))}
 }
+### Function to read annotated CDS into dataframe and combine with protein database 
 
-# Add metadata info from non_redundant_protein_db to the dataframe of annotated genes
-annotated_genes <- nr_pdb %>%
-  rowwise()%>%
-  mutate(protein_id = SeqID,
-         product = as.character(metadata),
-         Gene = as.character(Gene),
-         Locus = as.character(Locus),
-         Source=as.character(Source)) %>%
-  select(-c(sequence,SeqID,duplicates,metadata)) %>%
-  right_join(annotated_cds,by="protein_id") %>%
-  rowwise() %>%
-  mutate(Source=ifelse(is.na(Source),"UniProtKB",Source),
-         gene = ifelse(is.na(Gene),gene,Gene),
-         product = ifelse(is.na(product.x),product.y,product.x),
-         sequence_length=end-start+1)%>%
-  select(-c(seqid,Gene,product.x,product.y)) %>%
-  relocate(sample,contig,type,start,end,strand,gene,Locus,Name,Source,sequence_length,product) %>%
-  distinct()
+annotated_genes <- read_annotation_overview(analysis_design,"../REF/",nr_pdb)
 ```
 
 ```{r}

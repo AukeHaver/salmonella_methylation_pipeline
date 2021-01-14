@@ -319,11 +319,11 @@ generate_smrtlink_commands_part_3 <- function(design_dataframe,directory){
 #### Function for generating motif commands
 # Sub function for find command
 generate_find_command <- function(string){
-  return(paste0("bsub -q bio motifMaker find -f ../REF/",string,".fasta -g basemod_",string,".gff -o motifs/motifs_",string,".csv"))
+  return(paste0("bsub -q bio motifMaker find -f ../REF/",string,".fasta -g basemods/basemod_",string,".gff -o motifs/motifs_",string,".csv"))
 }
 # Sub function for reprocess command
 generate_reprocess_command <- function(string){
-  return(paste0("bsub -q bio motifMaker reprocess -f ../REF/",string,".fasta -g basemods/basemod_",string,".gff -m motifs/motifs_",string,".csv -o output/motifs_",string,".gff"))
+  return(paste0("bsub -q bio motifMaker reprocess -f ../REF/",string,".fasta -g basemods/basemod_",string,".gff -m motifs/motifs_",string,".csv -o motifs/motifs_",string,".gff"))
 }
 # Main function
 generate_smrtlink_commands_part_4 <- function(design_dataframe,directory){
@@ -336,6 +336,9 @@ generate_smrtlink_commands_part_4 <- function(design_dataframe,directory){
     "",
     "# Move to correct working directory:",
     paste0("cd ",file.path(directory,"smrtlink",fsep="/")),
+    "",
+    "# Make a motifs directory",
+    "mkdir motifs",
     "",
     "# Find motif and pass reference:",
     lapply(design_dataframe$Sample,FUN=generate_find_command)%>% unlist(),
