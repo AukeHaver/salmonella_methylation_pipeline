@@ -1,0 +1,219 @@
+---
+title: "smp_extra_genome_description"
+author: "Auke Haver"
+date: "January 13, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(broom)
+source("salmonella_methylation_pipeline_pdb_scripts.R")
+source("salmonella_methylation_pipeline_analysis_scripts.R")
+```
+
+# Read info file
+```{r}
+# Read info file
+design <- "../info/analysis_design.tsv" %>%
+  read_tsv(col_types="ccccc") 
+
+# Add fasta files
+design$Fasta <- gsub(".gff",".fasta",design$Reference)
+
+# Select unique fasta files
+unique_genomes <- design %>% 
+  group_by(Sequence_type) %>%
+  filter(Sequence_type!="pangenome" | row_number()==1) %>%
+  pull("Fasta") %>%
+  unique()
+
+# Non-redundant protein database
+nr_pdb <- 
+  "../protein_database/reference_files/senterica_pdb_non_redundant.csv" %>%
+  read.csv()
+```
+
+# Make an overview of all genomes
+```{r}
+# Generate genome descriptions for each genome and combine into one dataframe
+for(i in 1:length(unique_genomes)){
+  if(i==1){
+    genome_description <- generate_genome_description("../REF/",unique_genomes[i])}
+  else{
+    genome_description <- generate_genome_description("../REF/",unique_genomes[i]) %>%
+      full_join(genome_description,
+                by=colnames(genome_description))}}
+
+# join with design file for alias
+genome_description <- genome_description %>%
+  left_join(design %>%
+              select(Fasta,Source,Sequence_type),
+            by=c("genome"="Fasta")) %>%
+  # sort by source, contig
+  arrange(Source,contig)
+genome_description$Source[str_detect(genome_description$genome,"Unicycler Pangenome Assembly")]<- "hybrid_pangenome"
+genome_description$Sequence_type <- gsub("external","CLC Workbench Assembly",genome_description$Sequence_type)
+genome_description$Sequence_type <- gsub("reference","Reference Genome",genome_description$Sequence_type)
+genome_description$Sequence_type <- gsub("hybrid","Unicycler Assembly",genome_description$Sequence_type)
+```
+
+# Save to file
+```{r}
+genome_description %>%
+  select(-genome)%>%
+  group_by(Source,Sequence_type)%>%
+  pivot_wider(names_from = contig,
+              values_from=c(contig_length,
+                            GC_ratio)) %>%
+  relocate(Source,Sequence_type,contig_length_1,GC_ratio_1,contig_length_2,GC_ratio_2,contig_length_3,GC_ratio_3) %>%
+  arrange(Source) %>%
+  write_delim("../output/extra/sequence_assembly_overview.txt",delim="&")
+```
+
+
+#### COMPARING READ COUNT PERCENTAGES #####
+
+```{r}
+types <- c("total",
+           "reference",
+           "hybrid",
+           "external",
+           "pangenome")
+design <- read_tsv("../info/analysis_design.tsv", col_types="ccccc")
+samples <- design$Sample %>% gsub(pattern=".*_",replacement="sample_") %>% unique()
+motif_directory <- "../output/"
+```
+
+
+# Compare reads mapping counts
+```{r}
+samples <- design$Sample %>%
+  gsub(pattern=".*_",replacement="")%>%
+  unique()
+
+for(i in 1:length(samples)){
+  if(i==1){
+    mapping_counts_overview <- 
+      tibble(sample = paste0("sample_",samples[i]),
+             total = read_mapping_counts(i)[1],
+             reference = read_mapping_counts(i)[2],
+             hybrid = read_mapping_counts(i)[3],
+             external = read_mapping_counts(i)[4],
+             pangenome = read_mapping_counts(i)[5])}
+  else{
+    mapping_counts_overview <- 
+      tibble(sample = paste0("sample_",samples[i]),
+             total = read_mapping_counts(i)[1],
+             reference = read_mapping_counts(i)[2],
+             hybrid = read_mapping_counts(i)[3],
+             external = read_mapping_counts(i)[4],
+             pangenome = read_mapping_counts(i)[5]) %>%
+      full_join(mapping_counts_overview,by=colnames(mapping_counts_overview))}
+    
+  }
+mapping_counts_normalized <- 
+  mapping_counts_overview %>%
+  rowwise()%>%
+  mutate(reference = round(reference/total*100,1),
+         hybrid = round(hybrid/total*100,1),
+         external = round(external/total*100,1),
+         pangenome = round(pangenome/total*100,1)) %>%
+  arrange(sample) %>%
+  ungroup %>%
+  mutate(sample = design$Source[row_number()]) %>%
+  pivot_longer(cols = c("reference","hybrid","external","pangenome"),
+               names_to="sequence",
+               values_to="mapped_reads") %>%
+  mutate(sequence=as.factor(sequence),
+         mapped_reads = as.numeric(mapped_reads))
+
+
+kruskal.test(mapped_reads~sequence,data=mapping_counts_normalized)
+pairwise.wilcox.test(mapping_counts_normalized$mapped_reads,mapping_counts_normalized$sequence, p.adjust.method = "BH")
+
+mapping_counts_normalized %>%
+  pivot_wider(names_from=sequence,values_from=mapped_reads) %>%
+  arrange(sample)%>%
+  write_delim("../output/mapping_counts/mapping_counts_normalized_latex.txt",delim="&")
+```
+# Make a basemod overview
+```{r}
+#read_motifs_file(motif_directory,design$Sample[1])
+design <- design %>% filter(Sequence_type=="hybrid")
+for(i in 1:8){
+  if(i==1){
+    basemod_overview <- read_motifs_file("../smrtlink/motifs/",design$Sample[i])
+  }
+  else{
+    basemod_overview <- full_join(basemod_overview,
+                                  read_motifs_file("../smrtlink/motifs/",design$Sample[i]),
+                                  by = colnames(basemod_overview),
+                                  copy=TRUE)
+  }
+}
+```
+
+```{r}
+# Summarize basemods
+basemod_summary <- basemod_overview %>% 
+  select(Sample,type,in_motif) %>%
+  group_by(Sample,type) %>%
+  summarize(modification_count = n()) %>%
+  # Add read count data
+  full_join(mapping_counts_overview %>% 
+              select(sample,hybrid) %>% 
+              rowwise()%>%
+              mutate(sample = gsub("sample_","hybrid_",sample)),
+            by=c("Sample"="sample")) %>%
+  rename(hybrid="read_count") %>%
+  group_by(Sample)%>%
+  mutate(total_mod_count = sum(modification_count))%>%
+  rowwise()%>%
+  mutate(Sample = design$Source[design$Sample==Sample])
+
+# Compare models of the number of basemods per type as a function of type and read count
+model1 <- lm(modification_count~read_count,data=basemod_summary) 
+model2 <- lm(modification_count~read_count+type,data=basemod_summary)
+model3 <- lm(modification_count~read_count*type,data=basemod_summary)
+anova(model1,model2,model3)
+# Pick the first model
+
+model3 %>% tidy() %>% write_tsv("../output/statistics_read_basemod_count.tsv")
+```
+
+# As the model with an interaction term between the type of the modification and the number of reads has the lowest SSQ of residuals. It is the most accurate model
+```{r}
+basemod_summary$prediction <- predict(model3)
+model3 %>% tidy()
+basemod_summary %>%
+  ggplot(aes(x=read_count/100000,y=modification_count/10000,shape=type, color=gsub("_"," ",Sample),group=type))+
+  geom_point(size=2.5) +
+  scale_color_viridis_d()+
+  theme_bw() + 
+  #geom_line(aes(y=prediction/10000),size=.4,color="black",linetype="dashed")+
+  labs(color="Serovar / Source",
+       y=expression(paste("# Basemods in sample (",10^4,")")),
+       x=expression(paste("# Total Reads in sample (",10^5,")")),
+       shape = "Modification type") +
+  theme(aspect.ratio = 1.4,text=element_text(size=10,family="Times"))
+ggsave("../output/extra/read_basemod_dotplot.png")
+```
+# perform a chi-square test for homogeneity of basemod proportions between samples
+```{r}
+basemod_chi_square <- basemod_summary %>% 
+  select(Sample, type, modification_count) %>% 
+  pivot_wider(names_from = type,values_from=modification_count) %>%
+  column_to_rownames("Sample") %>%chisq.test()
+basemod_chi_square
+```
+
+
+
+
+
+
+
+
+

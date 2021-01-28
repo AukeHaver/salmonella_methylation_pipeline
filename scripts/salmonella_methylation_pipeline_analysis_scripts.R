@@ -454,3 +454,19 @@ short_motif_form <- function(motif_string){
          replacement=paste0("N",str_count(motif_string,"N")),
          motif_string))
 }
+### EXTRA
+# Function to read mapping counts 
+read_mapping_counts <- function(index){
+  return(readLines(paste0("../output/mapping_counts/sample_",samples[index],".txt"))%>% as.integer())
+}
+
+# Function to read a motifs file
+read_motifs_file <- function(directory,sample_name){
+  return(readGFF(
+    paste0(directory,"motifs_",sample_name,".gff")) %>%
+      as_tibble()) %>%
+    rowwise()%>%
+    mutate(in_motif = is.na(motif) == FALSE & motif !="character(0)",
+           Sample = sample_name) %>%
+    select(-motif,-id)
+}

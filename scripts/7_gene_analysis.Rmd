@@ -22,6 +22,7 @@ library(kableExtra,warn.conflicts = FALSE)
 #install.packages("VennDiagram")
 library(VennDiagram)
 library(xtable)
+
 ```
 
 ```{r}
@@ -46,61 +47,171 @@ virulence_factors <- full_join(
 
 # Read genes into a dataframe
 ```{r}
-# Read all annotated CDS of all samples into one large dataframe
-for(i in 1:nrow(analysis_design)){
-  if(i ==1){
-    annotated_cds <- 
-      paste0("../REF/",analysis_design$Reference[i]) %>% 
-      readgff() %>% 
-      mutate(sample = ifelse(analysis_design$Sequence_type[i]=="pangenome",
-                             "pangenome", 
-                             analysis_design$Sample[i])) %>%
-      cleangff()
-    } else {
-    annotated_cds <- 
-      paste0("../REF/",analysis_design$Reference[i]) %>% 
-      readgff() %>%
-      mutate(sample = ifelse(analysis_design$Sequence_type[i]=="pangenome",
-                             "pangenome", 
-                             analysis_design$Sample[i])) %>%
-      cleangff() %>%
-      full_join(annotated_cds,by=colnames(annotated_cds))}
-}
 ### Function to read annotated CDS into dataframe and combine with protein database 
+annotated_genes <- read_annotation_overview(analysis_design,"../REF/",nr_pdb) %>%
+  rowwise()%>%
+  mutate(Locus = ifelse(Source=="UniProtKB" & is.na(Locus),
+                        gsub("_.$","",gene),
+                        Locus),
+         Locus = ifelse(Source=="cgMLST" & is.na(Locus),
+                        gsub("_.$","",gene),
+                        Locus))
+### select all annotated virulence genes
+annotated_virulence_genes <- 
+  annotated_genes %>%
+  filter(Source=="VFDB"|Source=="UniProt_VF")
 
-annotated_genes <- read_annotation_overview(analysis_design,"../REF/",nr_pdb)
 ```
 
+
+# Make a table of annotated vf gene differences between all hybrids and pangenome
+```{r}
+annotated_virulence_genes %>%
+  select(sample,Locus,gene) %>%
+  unique() %>%
+  rowwise()%>%
+  mutate(sample = ifelse(str_detect(sample,"hybrid"),analysis_design$Source[analysis_design$Sample==sample],sample),
+         operon = ifelse(str_length(gene)==4,
+                         substr(gene,1,3),
+                         NA),
+         present = 1) %>%
+  pivot_wider(names_from = sample,values_from=present,values_fill=0) %>%
+  relocate(operon,gene,Locus,pangenome) %>%
+  arrange(gene)%>%
+  write_tsv("../output/gene_analysis/VF_presence_table.tsv")
+```
+
+# Compare gene copies per strain, include pangenome. Save both a version with ubiquitus genes and a version with just varying genes
+```{r}
+# Make an overview of gene copies per strain per gene
+gene_copies <- annotated_genes %>% filter(!isTRUE(Source=="UniProtKB" & is.na(gene) & is.na(Locus))) %>%
+  group_by(Locus,sample)%>%
+  mutate(copies=n(),
+         gene = gsub("_.$","",gene)) %>%
+  select(sample,gene,Locus,Source,copies) %>%
+  distinct() %>%
+  rowwise()%>%
+  mutate(sample = ifelse(str_detect(sample,"hybrid"),analysis_design$Source[analysis_design$Sample==sample],sample))%>%
+  ungroup()
+
+# Write to tsv all copies
+gene_copies %>%
+  pivot_wider(names_from=sample,values_from=copies,values_fill=0)%>%
+  relocate(gene,Locus,Source,pangenome) %>%
+  write_tsv("../output/gene_analysis/gene_copies_per_strain.tsv")
+
+# Remove genes present in all strains and pan genome
+gene_copies %>%
+  group_by(gene,Locus)%>%
+  filter(n()!=9) %>%
+  pivot_wider(names_from=sample,values_from=copies,values_fill=0)%>%
+  relocate(gene,Locus,Source,pangenome) %>%
+  arrange(pangenome,Source,gene) %>%
+  write_tsv("../output/gene_analysis/varying_gene_copies_per_strain.tsv")
+```
+
+
+# Make a summary of all annotated genes per sample by category
 ```{r}
 # Make a summary of all annotated genes per sample and save to file
-annotated_genes %>%
+annotation_counts_total <- annotated_genes %>%
   rowwise()%>%
-  mutate(category = determine_annotation_category(type,product,Source))%>%
+  mutate(category = determine_annotation_category(type,product,Source),
+         Locus = ifelse(Source=="UniProtKB" & is.na(Locus),gsub("_.$","",gene),Locus))%>%
   group_by(sample,category) %>%
   summarize(count=n()) %>% pivot_wider(names_from = category,values_from=count) %>%
+  rowwise()%>%
+  mutate(sample = ifelse(str_detect(sample,"hybrid"),analysis_design$Source[analysis_design$Sample==sample],sample))%>%
+  arrange(sample)
+  
+# tsv file
+annotation_counts_total %>%
   write_tsv("../output/gene_analysis/annotation_counts_total.tsv")
+# delim file for latex table
+annotation_counts_total %>%
+  write_delim("../output/gene_analysis/annotation_counts_total_latex.txt",delim="&")
 
+```
+# Make a summary of all core-genome and all pan-genome genes
+```{r}
 # Make a summary of all core-genome and all pan-genome genes
 overview_cg_pg <- annotated_genes %>%
-  filter(sample != "pangenome") %>%
-  select(sample,type,gene,Locus,Source,product) %>%
+  filter(!isTRUE(is.na(gene)&is.na(Locus)))%>%
   rowwise()%>%
-  mutate(category = determine_annotation_category(type,product,Source)) %>%
+  mutate(category = determine_annotation_category(type,product,Source),
+         Locus = ifelse(Source=="UniProtKB" & is.na(Locus),gsub("_.$","",gene),Locus))%>%
+  filter(sample != "pangenome") %>%
+  select(sample,type,Locus,Source,product,category) %>%
   filter(type=="CDS" & category!="hypothetical protein") %>%
   select(-product)%>%
   distinct() %>%
-  group_by(type,gene,Locus)%>%
+  group_by(type,Locus)%>%
   mutate(presence = ifelse(n()==8,"core_genome","pan_genome")) %>%
-  ungroup()
-# Summarize category counts in cg and pg
-overview_cg_pg %>%
-  select(gene,Locus,category,presence) %>%
+  ungroup() %>%
+  left_join(annotated_genes %>% select(gene,Locus),
+            by="Locus")
+
+# Calculate category counts for hybrid assemblies
+category_counts_unique <- overview_cg_pg %>%
+  select(Locus,category,presence) %>%
   distinct()%>%
+  rowwise()%>%
   group_by(category,presence) %>%
   summarize(count=n()) %>%
-  pivot_wider(names_from = presence,values_from=count) %>%
+  pivot_wider(names_from = presence,values_from=count)
+
+# Calculate category counts for pangenome, add to the hybrid category counts and write to file
+category_counts_unique <- annotated_genes %>%
+  rowwise()%>%
+  mutate(category = determine_annotation_category(type,product,Source),
+         Locus = ifelse(Source=="UniProtKB" & is.na(Locus),gsub("_.$","",gene),Locus))%>%
+  filter(sample == "pangenome")%>% 
+  filter(type=="CDS" & category!="hypothetical protein") %>%
+  select(-product)%>%
+  select(Locus,category)%>%
+  distinct() %>%
+    group_by(category)%>%
+  summarize(pangenome_assembly=n()) %>%
+ right_join(category_counts_unique,by="category")
+
+# Write as tsv file
+category_counts_unique %>%
   write_tsv("../output/gene_analysis/category_counts_unique.tsv")
+# Write as &-delimited latex file
+category_counts_unique %>%
+  write_delim("../output/gene_analysis/category_counts_unique_latex.txt","&")
+
+
 ```
+
+# Compare pangenome and pan-genome
+```{r}
+pangenome_genes <-
+  annotated_genes %>%
+  filter(sample=="pangenome")%>%
+  filter(!is.na(Locus)&type=="CDS")%>%
+  pull("Locus")%>%
+  unique()
+hybrid_genes <-
+  overview_cg_pg$Locus %>%
+  unique()
+
+pangenome_unique_genes <- pangenome_genes[!pangenome_genes %in%hybrid_genes]
+hybrid_unique_genes <- hybrid_genes[!hybrid_genes %in% pangenome_genes]
+
+annotated_genes %>%
+  filter(Locus %in% pangenome_unique_genes) %>% 
+  select(gene,Locus,Source)%>%
+  distinct() %>%
+  write_tsv("../output/gene_analysis/pangenome_unique_genes.tsv")
+annotated_genes %>%
+  filter(Locus %in% hybrid_unique_genes)%>% 
+  select(gene,Locus,Source)%>%
+  distinct()%>%
+  write_tsv("../output/gene_analysis/hybrid_unique_genes.tsv")
+```
+
+
 
 # Make an overview of core-genome virulence factors which are highly similar in sequence and length
 ```{r}

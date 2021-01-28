@@ -139,18 +139,22 @@ corrected_motif_overview_df %>%
   # Add serovar information
   left_join(design %>% select(Sample,Source),
             by=c("sample"="Sample"))%>% 
-  # Arrange by motif length
-  
   # Plot
   ggplot(aes(x=gsub("_"," ",Source),
-             y=percentage,
+             y=percentage*100,
              colour=motif,
              shape=genes))+
   geom_jitter(stat="identity",size=3,width=0.2)+
   scale_colour_viridis_d()+
   theme_bw()+
-  theme(axis.text.x=element_text(angle=45,hjust=1))+
-  labs(x="Serovar / Source",y="Percentage of all motifs",colour="Methylation Motif",shape="Location within Genome")
+  theme(text=element_text(family="Times New Roman",color="black",size=10),
+        axis.text.x=element_text(angle=45,hjust=1,size=10,color="black"),
+        axis.text.y = element_text(size=10,color="black"),
+        legend.text = element_text(size=8),
+        legend.position = "bottom",
+        legend.box="vertical",
+        aspect.ratio = 1.2)+
+  labs(x="Serovar / Source",y="Percentage of all motifs",colour="Methylation\nMotif",shape="Location\nwithin\nGenome")
 ggsave("../output/basemod_analysis/motif_distribution.png")
 ```
 
@@ -222,7 +226,7 @@ for(i in 1:nrow(design)){
 # Calculate basemod differences between strains
 ```{r}
 basemod_distances <- hs_cg_vf_basemods %>% 
-  rename(start="location")%>%
+  rename(location=start)%>%
   left_join(gene_annotations %>% select(sample,Name,gene,start,end),by=c("sample","Name")) %>%
   rowwise()%>%
   mutate(index = ifelse(location > end,-1,location-start),
@@ -237,6 +241,12 @@ basemod_distances <- hs_cg_vf_basemods %>%
   pivot_wider(names_from = gene_index,values_from=modified) %>%
     # change sample names to rownames in order not to lose them later
   column_to_rownames("sample")
+basemod_distances %>%
+  t() %>%
+  as_tibble()%>%
+  mutate(position = colnames(basemod_distances))%>%
+  relocate(position)%>%
+  write_tsv("../output/basemod_analysis/hs_cg_vf_basemod_positions.tsv")
 basemod_distances <- basemod_distances%>%
   # Turn into matrix,caluclate distance and turn back into matrix and then tibble
   as.matrix()%>%
@@ -253,15 +263,17 @@ basemod_distances %>% rownames_to_column("query")%>%
   rowwise()%>%
   mutate(query = design$Source[design$Sample==query],
          match = design$Source[design$Sample==match]) %>%
-  ggplot(aes(x=query,y=match,fill=distances))+
+  ggplot(aes(x=gsub("_"," ",query),y=gsub("_"," ",match),fill=distances))+
   geom_tile()+
   theme_minimal()+
   scale_fill_viridis_c()+
   geom_text(aes(label=distances))+
-  theme(axis.text.x=element_text(color="black",angle=45,hjust=1),
+  theme(text=element_text(family="Times New Roman",size=15,color="black"),
+    axis.text.x=element_text(color="black",angle=45,hjust=1),
         axis.text.y=element_text(color="black"),
+        axis.title.x = element_text(color="black"),
         aspect.ratio = 1)+
-  labs(fill="Different Base Modifications",y="Strain",x="Strain")
+  labs(fill="Position\nSpecific\nModification\nDifferences",y="Strain",x="Strain")
 ggsave("../output/basemod_analysis/basemod_differences_heatmap.png")
 ```
 
@@ -275,18 +287,22 @@ hs_cg_vf_basemods %>%
   left_join(design %>% select(Sample,Source,Serovar),
             by=c("sample"="Sample")) %>%
   group_by(sample,gene)%>%
-  mutate(gene = ifelse(n()>1,
-                       paste0(gene,"_",row_number()),
-                       gene)) %>%
+  mutate(multiplicit = ifelse(n()>1,TRUE,FALSE),
+         rownumber=as.integer(row_number())) %>%
+  rowwise()%>%
+  mutate(gene = ifelse(multiplicit,
+                       paste0(gene,rownumber),
+                       gene))%>%
   ungroup()%>%
   group_by(gene)%>%
   mutate(adjusted_basemod_count = basemod_count/mean(basemod_count))%>%
-  ggplot(aes(x=gene,y=Source,fill=log(basemod_count)))+
+  ggplot(aes(x=gene,y=gsub("_"," ",Source),fill=log10(basemod_count)))+
   geom_tile()+
   scale_fill_viridis_c()+
-  labs(fill="Log\n Basemod Count",y="Strain", x="Shared Virulence Factor")+
-  theme(axis.text.x=element_text(color="black",angle=90,hjust=1,size=6),
-        axis.text.y=element_text(color="black",size=6),
+  labs(fill="Log\nBasemod\nCount",y="Strain", x="Shared Virulence Factor")+
+  theme(text=element_text(family="Times New Roman",size=8),
+        axis.text.x=element_text(color="black",angle=90,hjust=1,size=8),
+        axis.text.y=element_text(color="black",size=8),
         axis.title.x=element_text(size=8,hjust=.6),
         axis.title.y = element_text(size=8),
         legend.title = element_text(size=8),
